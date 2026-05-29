@@ -1,0 +1,24 @@
+{
+  "name": "Wild Pasta - Cost & Expense Manager",
+  "short_name": "Wild Pasta",
+  "description": "Farmers Market business costing, sales, and expense manager for Wild Pasta.",
+  "start_url": "index.html",
+  "display": "standalone",
+  "background_color": "#12100f",
+  "theme_color": "#dca032",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

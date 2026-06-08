@@ -108,7 +108,9 @@ let state = {
   timesheet: [],
   expenses: [],
   sales: [],
-  paybacks: []
+  paybacks: [],
+  tipPayouts: [],
+  workerPayouts: []
 };
 
 // Keep track of Chart.js instance to destroy/re-create cleanly
@@ -185,6 +187,8 @@ function initAppState() {
       if (!Array.isArray(state.expenses)) state.expenses = [];
       if (!Array.isArray(state.sales)) state.sales = [];
       if (!Array.isArray(state.paybacks)) state.paybacks = [];
+      if (!Array.isArray(state.tipPayouts)) state.tipPayouts = [];
+      if (!Array.isArray(state.workerPayouts)) state.workerPayouts = [];
 
       // Ensure settings fields added in later versions exist
       if (!state.settings.syncBinId) state.settings.syncBinId = '';
@@ -193,6 +197,14 @@ function initAppState() {
       if (!state.settings.lastSyncTime) state.settings.lastSyncTime = '';
       if (state.settings.showFoodWeight === undefined) state.settings.showFoodWeight = true;
       if (state.settings.showFriendFinancing === undefined) state.settings.showFriendFinancing = true;
+      if (state.settings.registerAdjustment === undefined) state.settings.registerAdjustment = 0;
+      
+      // Data migration for expenseType
+      state.expenses.forEach(e => {
+        if (!e.expenseType) {
+          e.expenseType = e.paidByFriend ? 'startup' : 'operating';
+        }
+      });
     } catch (e) {
       console.error("Error parsing localStorage data, resetting to sample...", e);
       state = JSON.parse(JSON.stringify(WILD_PASTA_SAMPLE_DATA));
@@ -209,7 +221,9 @@ function initAppState() {
       timesheet: [],
       expenses: [],
       sales: [],
-      paybacks: []
+      paybacks: [],
+      tipPayouts: [],
+      workerPayouts: []
     };
     saveStateLocal();
   }
@@ -418,12 +432,10 @@ function updateFinancialsKPIs() {
     totalHours += entry.hours;
   });
 
-  // 2. Calculate non-friend-financed operating expenses
+  // 2. Calculate ALL operating expenses (exclude startup/debt)
   let totalOverhead = 0;
-  state.expenses.filter(e => !e.deleted && isDateInCurrentFilter(e.date)).forEach(exp => {
-    if (!exp.paidByFriend) {
-      totalOverhead += exp.amount;
-    }
+  state.expenses.filter(e => !e.deleted && e.expenseType === 'operating' && isDateInCurrentFilter(e.date)).forEach(exp => {
+    totalOverhead += exp.amount;
   });
 
   // 3. Compute ingredient expenses (Exact cost based on sales if sales are logged, else weekly batch fallback)
@@ -521,7 +533,7 @@ function updateFinancialsKPIs() {
 function showExpenseBreakdown() {
   if (!window.lastExpenseBreakdown) return;
   const b = window.lastExpenseBreakdown;
-  customAlert(`OVERALL EXPENSES BREAKDOWN:\n\n1. Active Labor & Timesheets: ${formatCurrency(b.labor)}\n2. Standard Operating Overhead (inc. Shopping Receipts): ${formatCurrency(b.overhead)}\n\nTOTAL OPERATIONAL EXPENSES: ${formatCurrency(b.total)}\n\n(Note: Recipe ingredient costs are calculated separately for margin tracking and are not included in this total)`);
+  customAlert(`OVERALL EXPENSES BREAKDOWN:\n\n1. Active Labor & Timesheets: ${formatCurrency(b.labor)}\n2. All Operating Expenses (inc. Shopping Receipts): ${formatCurrency(b.overhead)}\n\nTOTAL OPERATIONAL EXPENSES: ${formatCurrency(b.total)}\n\n(Note: Recipe ingredient costs are calculated separately for margin tracking and are not included in this total)`);
 }
 
 // 5. CHART IMPLEMENTATION (CHART.JS DONUT)
@@ -537,10 +549,8 @@ function renderDashboardCharts() {
   });
 
   let overheadCost = 0;
-  state.expenses.filter(e => !e.deleted && isDateInCurrentFilter(e.date)).forEach(e => {
-    if (!e.paidByFriend) {
-      overheadCost += e.amount;
-    }
+  state.expenses.filter(e => !e.deleted && e.expenseType === 'operating' && isDateInCurrentFilter(e.date)).forEach(e => {
+    overheadCost += e.amount;
   });
 
   const total = laborCost + overheadCost;
@@ -1704,10 +1714,14 @@ function renderWorkersAndTimesheets() {
 
   // Populate Timesheet form workers dropdown
   const workerSelect = document.getElementById('time-worker-id');
+  const payoutSelect = document.getElementById('payout-worker-id');
   workerSelect.innerHTML = '<option value="" disabled selected>-- Select Employee --</option>';
+  if (payoutSelect) payoutSelect.innerHTML = '<option value="" disabled selected>-- Select Employee --</option>';
   state.workers.filter(w => !w.deleted).forEach(w => {
     const roleDisplay = w.role ? ` (${w.role})` : "";
-    workerSelect.insertAdjacentHTML('beforeend', `<option value="${w.id}">${w.name}${roleDisplay}</option>`);
+    const opt = `<option value="${w.id}">${w.name}${roleDisplay}</option>`;
+    workerSelect.insertAdjacentHTML('beforeend', opt);
+    if (payoutSelect) payoutSelect.insertAdjacentHTML('beforeend', opt);
   });
 
   // RENDER TIMESHEETS TABLE
@@ -1715,42 +1729,98 @@ function renderWorkersAndTimesheets() {
   tbody.innerHTML = '';
 
   const filteredTimesheet = state.timesheet.filter(t => !t.deleted && isDateInCurrentFilter(t.date));
+  const tabsContainer = document.getElementById('labor-weekly-tabs-container');
+  if (tabsContainer) tabsContainer.innerHTML = '';
 
   if (filteredTimesheet.length === 0) {
     tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 30px;">No shifts found for this time period.</td></tr>`;
-    lucide.createIcons();
+    renderWorkerPayoutsList();
+    if (lucide && lucide.createIcons) lucide.createIcons();
     return;
   }
 
-  filteredTimesheet.forEach(entry => {
-    const worker = state.workers.find(w => w.id === entry.workerId);
-    const name = worker ? worker.name : "Unknown Worker";
-    const roleDisplay = worker && worker.role ? `<br><span style="font-size: 0.7rem; color: var(--text-muted); font-weight: normal;">${worker.role}</span>` : "";
-    const hourlyRate = worker ? worker.hourlyRate : 0;
-    const totalCost = entry.hours * hourlyRate;
+  // Group by Week
+  const weeksMap = {};
+  filteredTimesheet.forEach(t => {
+    const w = getWeekKey(t.date);
+    if (!weeksMap[w]) weeksMap[w] = [];
+    weeksMap[w].push(t);
+  });
 
-    const tr = `
-      <tr>
-        <td style="font-weight: 600;">${formatDateString(entry.date)}</td>
-        <td style="font-weight: 600;">${name}${roleDisplay}</td>
-        <td>${entry.hours.toFixed(1)} hrs</td>
-        <td>${hourlyRate === 0 ? "—" : formatCurrency(hourlyRate) + "/hr"}</td>
-        <td style="font-weight: 700; color: var(--color-basil); font-family: var(--font-brand);">${hourlyRate === 0 ? "$0.00" : formatCurrency(totalCost)}</td>
-        <td style="font-size: 0.8rem; color: var(--text-muted);">${entry.notes || '—'}</td>
-        <td>
-          <div class="table-row-actions">
-            <button class="btn-action-edit" onclick="editTimesheet(${entry.id})" title="Edit Shift">
-              <i data-lucide="edit-3"></i>
-            </button>
-            <button class="btn-action-delete" onclick="deleteTimesheet(${entry.id})" title="Delete Shift">
-              <i data-lucide="trash-2"></i>
-            </button>
-          </div>
+  const sortedWeeks = Object.keys(weeksMap).sort((a, b) => {
+    const dateA = new Date(weeksMap[a][0].date);
+    const dateB = new Date(weeksMap[b][0].date);
+    return dateB - dateA;
+  });
+
+  if (!window.currentLaborWeekTab || !weeksMap[window.currentLaborWeekTab]) {
+    window.currentLaborWeekTab = sortedWeeks[0];
+  }
+
+  if (tabsContainer) {
+    sortedWeeks.forEach(w => {
+      const isAct = w === window.currentLaborWeekTab;
+      const btn = `<button class="unit-btn ${isAct ? 'active' : ''}" style="white-space: nowrap; font-size: 0.8rem;" onclick="setLaborWeekTab('${w}')">${w}</button>`;
+      tabsContainer.insertAdjacentHTML('beforeend', btn);
+    });
+  }
+
+  const selectedShifts = weeksMap[window.currentLaborWeekTab];
+  
+  // Group by Day
+  const daysMap = {};
+  selectedShifts.forEach(t => {
+    if (!daysMap[t.date]) daysMap[t.date] = [];
+    daysMap[t.date].push(t);
+  });
+
+  const sortedDays = Object.keys(daysMap).sort((a,b) => new Date(b) - new Date(a));
+
+  sortedDays.forEach(date => {
+    // Insert Day Header
+    const dayHeader = `
+      <tr style="background: rgba(255,255,255,0.05);">
+        <td colspan="7" style="padding: 6px 15px; font-weight: 700; color: var(--color-semolina); font-size: 0.85rem;">
+          <i data-lucide="calendar" style="width: 12px; height: 12px; display: inline-block; margin-right: 4px;"></i> ${formatDateString(date)}
         </td>
       </tr>
     `;
-    tbody.insertAdjacentHTML('beforeend', tr);
+    tbody.insertAdjacentHTML('beforeend', dayHeader);
+
+    // Insert Shifts for that day
+    daysMap[date].forEach(entry => {
+      const worker = state.workers.find(w => w.id === entry.workerId);
+      const name = worker ? worker.name : "Unknown Worker";
+      const roleDisplay = worker && worker.role ? `<br><span style="font-size: 0.7rem; color: var(--text-muted); font-weight: normal;">${worker.role}</span>` : "";
+      const hourlyRate = worker ? worker.hourlyRate : 0;
+      const totalCost = entry.hours * hourlyRate;
+
+      const tr = `
+        <tr>
+          <td style="font-weight: 600; padding-left: 25px;">${formatDateString(entry.date)}</td>
+          <td style="font-weight: 600;">${name}${roleDisplay}</td>
+          <td>${entry.hours.toFixed(1)} hrs</td>
+          <td>${hourlyRate === 0 ? "—" : formatCurrency(hourlyRate) + "/hr"}</td>
+          <td style="font-weight: 700; color: var(--color-basil); font-family: var(--font-brand);">${hourlyRate === 0 ? "$0.00" : formatCurrency(totalCost)}</td>
+          <td style="font-size: 0.8rem; color: var(--text-muted);">${entry.notes || '—'}</td>
+          <td>
+            <div class="table-row-actions">
+              <button class="btn-action-edit" onclick="editTimesheet(${entry.id})" title="Edit Shift">
+                <i data-lucide="edit-3"></i>
+              </button>
+              <button class="btn-action-delete" onclick="deleteTimesheet(${entry.id})" title="Delete Shift">
+                <i data-lucide="trash-2"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+      tbody.insertAdjacentHTML('beforeend', tr);
+    });
   });
+
+  renderWorkerPayoutsList();
+  if (lucide && lucide.createIcons) lucide.createIcons();
 
   lucide.createIcons();
 }
@@ -1877,6 +1947,165 @@ function deleteTimesheet(id) {
   });
 }
 
+window.currentLaborWeekTab = null;
+
+function setLaborWeekTab(week) {
+  window.currentLaborWeekTab = week;
+  renderWorkersAndTimesheets();
+}
+
+// Worker Payout CRUD
+function openPayoutModal() {
+  if (state.workers.length === 0) {
+    customAlert("Please add at least one employee in the Worker Directory panel first!");
+    return;
+  }
+  document.getElementById('form-payout').reset();
+  const sugEl = document.getElementById('payout-suggested-amount');
+  if (sugEl) {
+    sugEl.style.display = 'none';
+    sugEl.textContent = '';
+  }
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('payout-date').value = today;
+  openModal('modal-payout');
+}
+
+function updateSuggestedPayout() {
+  const workerIdStr = document.getElementById('payout-worker-id').value;
+  if (!workerIdStr) return;
+  const workerId = parseInt(workerIdStr);
+  const worker = state.workers.find(w => w.id === workerId);
+  if (!worker) return;
+
+  let totalEarned = 0;
+  state.timesheet.filter(t => !t.deleted && t.workerId === workerId).forEach(t => {
+    totalEarned += t.hours * worker.hourlyRate;
+  });
+
+  let totalPaid = 0;
+  (state.workerPayouts || []).filter(p => !p.deleted && p.workerId === workerId && p.type === 'salary').forEach(p => {
+    totalPaid += p.amount;
+  });
+
+  const outstanding = Math.max(0, totalEarned - totalPaid);
+
+  const sugEl = document.getElementById('payout-suggested-amount');
+  if (sugEl) {
+    sugEl.style.display = 'block';
+    sugEl.textContent = `Outstanding Balance: ${formatCurrency(outstanding)}`;
+  }
+  
+  if (outstanding > 0) {
+    document.getElementById('payout-amount').value = outstanding.toFixed(2);
+  } else {
+    document.getElementById('payout-amount').value = '';
+  }
+}
+
+function savePayoutForm(e) {
+  e.preventDefault();
+  const workerId = parseInt(document.getElementById('payout-worker-id').value);
+  const date = document.getElementById('payout-date').value;
+  const amount = parseFloat(document.getElementById('payout-amount').value);
+  const method = document.getElementById('payout-method').value;
+  const notes = document.getElementById('payout-notes').value.trim();
+
+  if (!state.workerPayouts) state.workerPayouts = [];
+
+  const newId = state.workerPayouts.length > 0 ? Math.max(...state.workerPayouts.map(p => p.id)) + 1 : 1;
+  state.workerPayouts.push({
+    id: newId,
+    workerId,
+    date,
+    amount,
+    notes,
+    paymentMethod: method,
+    type: 'salary'
+  });
+
+  updateState("Logged worker payout");
+  closeModal('modal-payout');
+}
+
+function deletePayout(id) {
+  const p = state.workerPayouts.find(entry => entry.id === id);
+  if (!p) return;
+
+  customConfirm("Are you sure you want to delete this payout record?", () => {
+    p.deleted = true;
+    updateState("Deleted payout record");
+  });
+}
+
+function renderWorkerPayoutsList() {
+  const tbody = document.getElementById('payouts-table-body');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  const payouts = (state.workerPayouts || []).filter(p => !p.deleted && isDateInCurrentFilter(p.date));
+
+  if (payouts.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 30px;">No payouts recorded for this time period.</td></tr>`;
+    return;
+  }
+
+  // Group by Worker
+  const workerGroups = {};
+  payouts.forEach(p => {
+    if (!workerGroups[p.workerId]) workerGroups[p.workerId] = [];
+    workerGroups[p.workerId].push(p);
+  });
+
+  const sortedWorkerIds = Object.keys(workerGroups).sort((a,b) => {
+    const nameA = state.workers.find(w => w.id === parseInt(a))?.name || '';
+    const nameB = state.workers.find(w => w.id === parseInt(b))?.name || '';
+    return nameA.localeCompare(nameB);
+  });
+
+  sortedWorkerIds.forEach(wid => {
+    const worker = state.workers.find(w => w.id === parseInt(wid));
+    const workerName = worker ? worker.name : 'Unknown Worker';
+    
+    // Worker Header Row
+    const headerRow = `
+      <tr style="background: rgba(255,255,255,0.05);">
+        <td colspan="6" style="padding: 6px 15px; font-weight: 700; color: var(--color-semolina); font-size: 0.85rem;">
+          <i data-lucide="user" style="width: 12px; height: 12px; display: inline-block; margin-right: 4px;"></i> ${workerName}
+        </td>
+      </tr>
+    `;
+    tbody.insertAdjacentHTML('beforeend', headerRow);
+
+    // Payouts for this worker
+    workerGroups[wid].sort((a,b) => new Date(b.date) - new Date(a.date)).forEach(p => {
+      let typeBadge = p.type === 'tips' 
+        ? '<span class="badge" style="background: rgba(91, 163, 112, 0.15); color: var(--color-basil);">Tips</span>'
+        : '<span class="badge" style="background: rgba(255, 255, 255, 0.05); color: var(--color-cream);">Salary</span>';
+        
+      const methodBadge = p.paymentMethod ? `<span class="badge" style="background: rgba(255,255,255,0.05); color: var(--text-muted); margin-left: 5px; font-size: 0.65rem;">${p.paymentMethod}</span>` : '';
+
+      const tr = `
+        <tr>
+          <td style="font-weight: 600; padding-left: 25px;">${formatDateString(p.date)}</td>
+          <td style="font-size: 0.8rem; color: var(--text-muted);">${workerName}</td>
+          <td>${typeBadge}${methodBadge}</td>
+          <td style="font-weight: 700; color: var(--color-semolina); font-family: var(--font-brand);">${formatCurrency(p.amount)}</td>
+          <td style="font-size: 0.8rem; color: var(--text-muted);">${p.notes || '—'}</td>
+          <td>
+            <div class="table-row-actions">
+              <button class="btn-action-delete" onclick="deletePayout(${p.id})" title="Delete Payout">
+                <i data-lucide="trash-2"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+      tbody.insertAdjacentHTML('beforeend', tr);
+    });
+  });
+}
+
 
 // 10. SALES & INCOME MANAGER MODULE
 function renderSalesList() {
@@ -1906,59 +2135,160 @@ function renderSalesList() {
 
   const kpiRev = document.getElementById('kpi-sales-revenue');
   const kpiTips = document.getElementById('kpi-sales-tips');
-  const kpiComb = document.getElementById('kpi-sales-combined');
   const kpiCount = document.getElementById('kpi-sales-count');
+  
+  // Tip Calculator logic
+  const kpiTipsPerWorker = document.getElementById('kpi-tips-per-worker');
+  const kpiTipsWorkersCount = document.getElementById('kpi-tips-workers-count');
+  
+  // Register Logic
+  const kpiRegisterTotal = document.getElementById('kpi-register-total');
+  let cashIncome = 0;
+  state.sales.filter(s => !s.deleted).forEach(s => {
+    if (s.paymentMethod === 'Cash') cashIncome += s.total;
+  });
+  let cashExpenses = 0;
+  state.expenses.filter(e => !e.deleted).forEach(e => {
+    if (e.paymentMethod === 'Cash') cashExpenses += e.amount;
+  });
+  window.expectedRegister = cashIncome - cashExpenses;
+  const currentRegister = window.expectedRegister + (state.settings.registerAdjustment || 0);
+  
+  if (kpiRegisterTotal) {
+    kpiRegisterTotal.textContent = formatCurrency(currentRegister);
+  }
+
+  // Find active workers in the current date filter
+  const activeWorkerIds = new Set();
+  state.timesheet.filter(t => !t.deleted && isDateInCurrentFilter(t.date)).forEach(t => activeWorkerIds.add(t.workerId));
+  let workerCount = activeWorkerIds.size;
+  if (workerCount === 0) {
+    workerCount = state.workers.filter(w => !w.deleted).length;
+  }
+  
+  const undistributedTips = totalTips - (state.workerPayouts || []).filter(p => !p.deleted && p.type === 'tips').reduce((sum, p) => sum + p.amount, 0);
+  const tipsPerWorker = workerCount > 0 ? undistributedTips / workerCount : 0;
 
   if (kpiRev) kpiRev.textContent = formatCurrency(totalRevenue);
-  if (kpiTips) kpiTips.textContent = formatCurrency(totalTips);
-  if (kpiComb) kpiComb.textContent = formatCurrency(totalRevenue + totalTips);
+  if (kpiTips) kpiTips.textContent = formatCurrency(undistributedTips);
+  const kpiTipsUndistributed = document.getElementById('kpi-tips-undistributed');
+  if (kpiTipsUndistributed) kpiTipsUndistributed.textContent = formatCurrency(undistributedTips);
+  
   if (kpiCount) kpiCount.textContent = `${salesCount} entries logged`;
+  if (kpiTipsPerWorker) kpiTipsPerWorker.textContent = `${formatCurrency(tipsPerWorker)} / worker`;
+  if (kpiTipsWorkersCount) kpiTipsWorkersCount.textContent = `Based on ${workerCount} active workers`;
+  
+  // Expose for distributeTips()
+  window.currentTipPool = undistributedTips;
+
+  const tabsContainer = document.getElementById('sales-weekly-tabs-container');
+  if (tabsContainer) tabsContainer.innerHTML = '';
 
   if (filtered.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 30px;">No sales logged. Click "Log Sales / Income" to record revenue!</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 30px;">No sales logged for this time period. Click "Log Sales / Income" to record revenue!</td></tr>`;
     return;
   }
 
+  // Group by Week
+  const weeksMap = {};
   filtered.forEach(s => {
-    let typeBadge = '';
-    let details = '';
-    
-    if (s.type === 'dishes') {
-      typeBadge = `<span class="badge" style="background: var(--color-basil-dark); color: var(--color-basil);">Dish Sale</span>`;
-      const recipe = state.recipes.find(r => r.id === s.recipeId);
-      details = recipe ? recipe.name : 'Unknown Recipe';
-    } else {
-      typeBadge = `<span class="badge" style="background: var(--bg-tertiary); color: var(--color-blue);">Lump Sum</span>`;
-      details = s.notes || 'Register/Pop-Up Total';
-    }
+    const w = getWeekKey(s.date);
+    if (!weeksMap[w]) weeksMap[w] = [];
+    weeksMap[w].push(s);
+  });
 
-    const qtyDisplay = s.type === 'dishes' ? s.quantity : '—';
+  const sortedWeeks = Object.keys(weeksMap).sort((a, b) => {
+    const dateA = new Date(weeksMap[a][0].date);
+    const dateB = new Date(weeksMap[b][0].date);
+    return dateB - dateA;
+  });
 
-    const tr = `
-      <tr>
-        <td>${s.date}</td>
-        <td>${typeBadge}</td>
-        <td style="font-weight: 600;">${details}</td>
-        <td>${qtyDisplay}</td>
-        <td style="font-family: var(--font-brand); font-weight: 600;">${formatCurrency(s.subtotal)}</td>
-        <td style="color: var(--color-tomato); font-weight: 600;">${s.tips > 0 ? formatCurrency(s.tips) : '—'}</td>
-        <td style="font-weight: 700; color: var(--color-semolina); font-family: var(--font-brand);">${formatCurrency(s.total)}</td>
-        <td>
-          <div class="table-row-actions">
-            <button class="btn-action-edit" onclick="editSales(${s.id})" title="Edit Entry">
-              <i data-lucide="edit-3"></i>
-            </button>
-            <button class="btn-action-delete" onclick="deleteSales(${s.id})" title="Delete Entry">
-              <i data-lucide="trash-2"></i>
-            </button>
-          </div>
+  if (!window.currentSalesWeekTab || !weeksMap[window.currentSalesWeekTab]) {
+    window.currentSalesWeekTab = sortedWeeks[0];
+  }
+
+  if (tabsContainer) {
+    sortedWeeks.forEach(w => {
+      const isAct = w === window.currentSalesWeekTab;
+      const btn = `<button class="unit-btn ${isAct ? 'active' : ''}" style="white-space: nowrap; font-size: 0.8rem;" onclick="setSalesWeekTab('${w}')">${w}</button>`;
+      tabsContainer.insertAdjacentHTML('beforeend', btn);
+    });
+  }
+
+  const selectedSales = weeksMap[window.currentSalesWeekTab];
+
+  // Group by Day
+  const daysMap = {};
+  selectedSales.forEach(s => {
+    if (!daysMap[s.date]) daysMap[s.date] = [];
+    daysMap[s.date].push(s);
+  });
+
+  const sortedDays = Object.keys(daysMap).sort((a,b) => new Date(b) - new Date(a));
+
+  sortedDays.forEach(date => {
+    // Insert Day Header
+    const dayHeader = `
+      <tr style="background: rgba(255,255,255,0.05);">
+        <td colspan="8" style="padding: 6px 15px; font-weight: 700; color: var(--color-semolina); font-size: 0.85rem;">
+          <i data-lucide="calendar" style="width: 12px; height: 12px; display: inline-block; margin-right: 4px;"></i> ${formatDateString(date)}
         </td>
       </tr>
     `;
-    tbody.insertAdjacentHTML('beforeend', tr);
+    tbody.insertAdjacentHTML('beforeend', dayHeader);
+
+    // Insert Sales for that day
+    daysMap[date].forEach(s => {
+      let typeBadge = '';
+      let details = '';
+      
+      if (s.type === 'dishes') {
+        typeBadge = `<span class="badge" style="background: var(--color-basil-dark); color: var(--color-basil);">Dish Sale</span>`;
+        const recipe = state.recipes.find(r => r.id === s.recipeId);
+        details = recipe ? recipe.name : 'Unknown Recipe';
+      } else {
+        typeBadge = `<span class="badge" style="background: var(--bg-tertiary); color: var(--color-blue);">Lump Sum</span>`;
+        details = s.notes || 'Register/Pop-Up Total';
+      }
+
+      const qtyDisplay = s.type === 'dishes' ? s.quantity : '—';
+
+      const tr = `
+        <tr>
+          <td style="font-weight: 600; padding-left: 25px;">${formatDateString(s.date)}</td>
+          <td>
+            ${typeBadge}
+            <span class="badge" style="background: rgba(255,255,255,0.05); color: var(--text-muted); margin-left: 5px; font-size: 0.65rem;">${s.paymentMethod || 'Cash'}</span>
+          </td>
+          <td style="font-weight: 600;">${details}</td>
+          <td>${qtyDisplay}</td>
+          <td style="font-family: var(--font-brand); font-weight: 600;">${formatCurrency(s.subtotal)}</td>
+          <td style="color: var(--color-tomato); font-weight: 600;">${s.tips > 0 ? formatCurrency(s.tips) : '—'}</td>
+          <td style="font-weight: 700; color: var(--color-semolina); font-family: var(--font-brand);">${formatCurrency(s.total)}</td>
+          <td>
+            <div class="table-row-actions">
+              <button class="btn-action-edit" onclick="editSales(${s.id})" title="Edit Entry">
+                <i data-lucide="edit-3"></i>
+              </button>
+              <button class="btn-action-delete" onclick="deleteSales(${s.id})" title="Delete Entry">
+                <i data-lucide="trash-2"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+      tbody.insertAdjacentHTML('beforeend', tr);
+    });
   });
 
-  lucide.createIcons();
+  if (lucide && lucide.createIcons) lucide.createIcons();
+}
+
+window.currentSalesWeekTab = null;
+
+function setSalesWeekTab(week) {
+  window.currentSalesWeekTab = week;
+  renderSalesList();
 }
 
 function handleSalesTypeSelect() {
@@ -1991,6 +2321,130 @@ function handleSalesTypeSelect() {
   } catch (err) {
     console.error("Error in handleSalesTypeSelect:", err);
   }
+}
+
+// ------------------------------------------
+// TIP PAYOUTS MANAGEMENT
+// ------------------------------------------
+function openTipPoolModal() {
+  if (window.currentTipPool <= 0) {
+    customAlert("There are no undistributed tips to distribute!");
+    return;
+  }
+  
+  document.getElementById('form-tip-pool').reset();
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('tip-pool-date').value = today;
+  document.getElementById('tip-pool-amount-display').textContent = formatCurrency(window.currentTipPool);
+  
+  const workersList = document.getElementById('tip-pool-workers-list');
+  workersList.innerHTML = '';
+  
+  const activeWorkers = state.workers.filter(w => !w.deleted);
+  if (activeWorkers.length === 0) {
+    customAlert("You have no active workers to distribute tips to!");
+    return;
+  }
+  
+  activeWorkers.forEach(w => {
+    const html = `
+      <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--color-cream); font-weight: 500;">
+        <input type="checkbox" class="tip-worker-checkbox" value="${w.id}" onchange="updateTipPoolPreview()" checked style="width: 16px; height: 16px;">
+        ${w.name} ${w.role ? `(${w.role})` : ''}
+      </label>
+    `;
+    workersList.insertAdjacentHTML('beforeend', html);
+  });
+  
+  updateTipPoolPreview();
+  openModal('modal-tip-pool');
+}
+
+function updateTipPoolPreview() {
+  const checkboxes = document.querySelectorAll('.tip-worker-checkbox:checked');
+  const count = checkboxes.length;
+  const previewEl = document.getElementById('tip-pool-preview');
+  const btn = document.getElementById('btn-distribute-tips');
+  
+  if (count === 0) {
+    previewEl.innerHTML = '<span style="color: var(--color-tomato);">Select at least one worker.</span>';
+    btn.disabled = true;
+  } else {
+    const perWorker = window.currentTipPool / count;
+    previewEl.innerHTML = `Dividing ${formatCurrency(window.currentTipPool)} among ${count} workers = <span style="color: var(--color-basil);">${formatCurrency(perWorker)}</span> each.`;
+    btn.disabled = false;
+  }
+}
+
+function saveTipPoolForm(e) {
+  e.preventDefault();
+  
+  const checkboxes = document.querySelectorAll('.tip-worker-checkbox:checked');
+  const count = checkboxes.length;
+  if (count === 0) return;
+  
+  const date = document.getElementById('tip-pool-date').value;
+  const perWorker = window.currentTipPool / count;
+  
+  if (!state.workerPayouts) state.workerPayouts = [];
+  
+  checkboxes.forEach(cb => {
+    const workerId = parseInt(cb.value);
+    const newId = state.workerPayouts.length > 0 ? Math.max(...state.workerPayouts.map(p => p.id)) + 1 : 1;
+    state.workerPayouts.push({
+      id: newId,
+      workerId,
+      date,
+      amount: perWorker,
+      notes: "Tip Pool Distribution",
+      type: 'tips'
+    });
+  });
+  
+  updateState(`Distributed ${formatCurrency(window.currentTipPool)} in tips`);
+  closeModal('modal-tip-pool');
+}
+
+function closeSalesModal() {
+  try {
+    const form = document.getElementById('form-sales');
+    if (form) form.reset();
+    closeModal('modal-sales');
+  } catch (err) {
+    console.error("Error closing sales modal:", err);
+  }
+}
+
+// ------------------------------------------
+// REGISTER RECONCILIATION
+// ------------------------------------------
+function openRegisterModal() {
+  const current = window.expectedRegister + (state.settings.registerAdjustment || 0);
+  document.getElementById('reg-actual-balance').value = current.toFixed(2);
+  openModal('modal-register');
+}
+
+function saveRegisterForm(e) {
+  e.preventDefault();
+  const actualStr = document.getElementById('reg-actual-balance').value;
+  const actual = parseFloat(actualStr);
+  if (isNaN(actual) || actual < 0) {
+    customAlert("Please enter a valid cash amount.");
+    return;
+  }
+  
+  const currentAdjustment = state.settings.registerAdjustment || 0;
+  const currentDisplayed = window.expectedRegister + currentAdjustment;
+  
+  if (actual === currentDisplayed) {
+    closeModal('modal-register');
+    return;
+  }
+  
+  // Register adjustment = actual - expected
+  state.settings.registerAdjustment = actual - window.expectedRegister;
+  updateState(`Reconciled cash register to ${formatCurrency(actual)}`);
+  closeModal('modal-register');
 }
 
 function openSalesModal() {
@@ -2081,6 +2535,7 @@ function saveSalesForm(e) {
   const idVal = document.getElementById('sales-form-id').value;
   const date = document.getElementById('sales-date').value;
   const type = document.getElementById('sales-type').value;
+  const paymentMethod = document.getElementById('sales-payment-method').value;
   const tips = parseFloat(document.getElementById('sales-tips').value) || 0;
   const notes = document.getElementById('sales-notes').value.trim();
 
@@ -2115,6 +2570,7 @@ function saveSalesForm(e) {
     subtotal,
     tips,
     total,
+    paymentMethod,
     notes: notes || (type === 'dishes' ? `Sold ${quantity}x ${state.recipes.find(r => r.id === recipeId).name}` : 'Lump Sum Entry')
   };
 
@@ -2141,6 +2597,9 @@ function editSales(id) {
   document.getElementById('sales-form-id').value = sale.id;
   document.getElementById('sales-date').value = sale.date;
   document.getElementById('sales-type').value = sale.type;
+  if (document.getElementById('sales-payment-method')) {
+    document.getElementById('sales-payment-method').value = sale.paymentMethod || 'Cash';
+  }
   document.getElementById('sales-tips').value = sale.tips;
   document.getElementById('sales-notes').value = sale.notes || '';
 
@@ -2184,56 +2643,124 @@ function handleExpenseFriendToggle() {
   }
 }
 
-function renderExpensesList() {
-  const tbody = document.getElementById('expenses-table-body');
-  tbody.innerHTML = '';
+function getWeekKey(dateStr) {
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return "Unknown Week";
+  const d = new Date(parts[0], parts[1]-1, parts[2]);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  const monday = new Date(d.getFullYear(), d.getMonth(), diff);
+  return `Week of ${monday.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric'})}`;
+}
 
-  const friendFinancedExpenses = state.expenses.filter(e => !e.deleted && e.paidByFriend);
-  const standardExpenses = state.expenses.filter(e => !e.deleted && !e.paidByFriend);
+window.currentExpenseWeekTab = null;
+
+function setExpenseWeekTab(week) {
+  window.currentExpenseWeekTab = week;
+  renderExpensesList();
+}
+
+function renderExpensesList() {
+  const opTbody = document.getElementById('expenses-table-body');
+  const startupTbody = document.getElementById('startup-expenses-table-body');
+  const tabsContainer = document.getElementById('expenses-weekly-tabs-container');
+  
+  if (opTbody) opTbody.innerHTML = '';
+  if (startupTbody) startupTbody.innerHTML = '';
+  if (tabsContainer) tabsContainer.innerHTML = '';
 
   const filteredExpenses = state.expenses.filter(e => !e.deleted && isDateInCurrentFilter(e.date));
 
-  if (filteredExpenses.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 30px;">No operating expenses found for this time period.</td></tr>`;
+  // --- STARTUP / DEBTS ---
+  const startupExpenses = filteredExpenses.filter(e => e.expenseType === 'startup');
+  if (startupExpenses.length === 0) {
+    if (startupTbody) startupTbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 30px;">No startup costs or major debts logged.</td></tr>`;
+  } else {
+    // Sort descending by date
+    startupExpenses.sort((a,b) => new Date(b.date) - new Date(a.date)).forEach(exp => {
+      const friendBadge = exp.paidByFriend && exp.friendName ? `<span class="badge" style="background: rgba(91, 163, 112, 0.15); color: var(--color-basil); font-size: 0.65rem;">Paid by ${exp.friendName}</span>` : '—';
+      const tr = `
+        <tr>
+          <td style="font-weight: 600;">${formatDateString(exp.date)}</td>
+          <td><span class="badge category-packaging">${exp.category}</span></td>
+          <td style="font-family: var(--font-brand); font-weight: 700; color: var(--color-tomato);">${formatCurrency(exp.amount)}</td>
+          <td>${friendBadge}</td>
+          <td style="font-size: 0.8rem; color: var(--text-muted);">${exp.notes || '—'}</td>
+          <td>
+            <div class="table-row-actions">
+              <button class="btn-action-edit" onclick="editExpense(${exp.id})" title="Edit"><i data-lucide="edit-3"></i></button>
+              <button class="btn-action-delete" onclick="deleteExpense(${exp.id})" title="Delete"><i data-lucide="trash-2"></i></button>
+            </div>
+          </td>
+        </tr>`;
+      if (startupTbody) startupTbody.insertAdjacentHTML('beforeend', tr);
+    });
+  }
+
+  // --- OPERATING OVERHEAD (WEEKLY TABS) ---
+  const operatingExpenses = filteredExpenses.filter(e => e.expenseType === 'operating');
+  
+  if (operatingExpenses.length === 0) {
+    if (opTbody) opTbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 30px;">No operating expenses found for this time period.</td></tr>`;
     updateDebtTrackerUI();
     renderPaybacksList();
+    if (lucide && lucide.createIcons) lucide.createIcons();
     return;
   }
 
-  filteredExpenses.forEach(exp => {
-    let friendBadge = '';
-    if (exp.paidByFriend && state.settings.showFriendFinancing !== false) {
-      friendBadge = `<span class="badge" style="background: rgba(91, 163, 112, 0.15); color: var(--color-basil); margin-left: 8px; font-size: 0.65rem;"><i data-lucide="handshake" style="width: 10px; height: 10px; display: inline; vertical-align: middle; margin-right: 3px;"></i>Paid by ${exp.friendName}</span>`;
-    }
+  // Group by Week
+  const weeksMap = {};
+  operatingExpenses.forEach(e => {
+    const w = getWeekKey(e.date);
+    if (!weeksMap[w]) weeksMap[w] = [];
+    weeksMap[w].push(e);
+  });
+
+  // Sort weeks descending (rough string sort is tricky, better to sort by raw date of the first entry)
+  const sortedWeeks = Object.keys(weeksMap).sort((a, b) => {
+    const dateA = new Date(weeksMap[a][0].date);
+    const dateB = new Date(weeksMap[b][0].date);
+    return dateB - dateA;
+  });
+
+  if (!window.currentExpenseWeekTab || !weeksMap[window.currentExpenseWeekTab]) {
+    window.currentExpenseWeekTab = sortedWeeks[0];
+  }
+
+  // Render Tabs
+  if (tabsContainer) {
+    sortedWeeks.forEach(w => {
+      const isAct = w === window.currentExpenseWeekTab;
+      const btn = `<button class="unit-btn ${isAct ? 'active' : ''}" style="white-space: nowrap; font-size: 0.8rem;" onclick="setExpenseWeekTab('${w}')">${w}</button>`;
+      tabsContainer.insertAdjacentHTML('beforeend', btn);
+    });
+  }
+
+  // Render Selected Week
+  const selectedOps = weeksMap[window.currentExpenseWeekTab];
+  selectedOps.sort((a,b) => new Date(b.date) - new Date(a.date)).forEach(exp => {
     const tr = `
       <tr>
         <td style="font-weight: 600;">${formatDateString(exp.date)}</td>
-        <td>
           <span class="badge category-packaging">${exp.category}</span>
-          ${friendBadge}
+          <span class="badge" style="background: rgba(255,255,255,0.05); color: var(--text-muted); margin-left: 5px; font-size: 0.65rem;">${exp.paymentMethod || 'Card'}</span>
+          ${exp.paidByFriend && exp.friendName ? `<span class="badge" style="background: rgba(91, 163, 112, 0.15); color: var(--color-basil); margin-left: 5px; font-size: 0.65rem;">Owed to ${exp.friendName}</span>` : ''}
         </td>
-        <td style="font-family: var(--font-brand); font-weight: 700; color: ${exp.paidByFriend ? 'var(--color-cream)' : 'var(--color-tomato)'};">
-          ${formatCurrency(exp.amount)}
-        </td>
+        <td style="font-family: var(--font-brand); font-weight: 700; color: var(--color-tomato);">${formatCurrency(exp.amount)}</td>
         <td style="font-size: 0.8rem; color: var(--text-muted);">${exp.notes || '—'}</td>
         <td>
           <div class="table-row-actions">
-            <button class="btn-action-edit" onclick="editExpense(${exp.id})" title="Edit Expense">
-              <i data-lucide="edit-3"></i>
-            </button>
-            <button class="btn-action-delete" onclick="deleteExpense(${exp.id})" title="Delete Expense">
-              <i data-lucide="trash-2"></i>
-            </button>
+            <button class="btn-action-edit" onclick="editExpense(${exp.id})" title="Edit"><i data-lucide="edit-3"></i></button>
+            <button class="btn-action-delete" onclick="deleteExpense(${exp.id})" title="Delete"><i data-lucide="trash-2"></i></button>
           </div>
         </td>
-      </tr>
-    `;
-    tbody.insertAdjacentHTML('beforeend', tr);
+      </tr>`;
+    if (opTbody) opTbody.insertAdjacentHTML('beforeend', tr);
   });
 
   updateDebtTrackerUI();
   renderPaybacksList();
-  lucide.createIcons();
+  if (lucide && lucide.createIcons) lucide.createIcons();
 }
 
 function openExpenseModal() {
@@ -2253,6 +2780,16 @@ function editExpense(id) {
 
   document.getElementById('expense-form-id').value = exp.id;
   document.getElementById('exp-date').value = exp.date;
+  if (document.getElementById('exp-payment-method')) {
+    document.getElementById('exp-payment-method').value = exp.paymentMethod || 'Card';
+  }
+  
+  if (exp.expenseType === 'startup') {
+    document.getElementById('exp-type-startup').checked = true;
+  } else {
+    document.getElementById('exp-type-operating').checked = true;
+  }
+  
   document.getElementById('exp-category').value = exp.category;
   document.getElementById('exp-amount').value = exp.amount;
   document.getElementById('exp-notes').value = exp.notes || '';
@@ -2272,6 +2809,7 @@ function saveExpenseForm(e) {
   e.preventDefault();
   const idVal = document.getElementById('expense-form-id').value;
   const date = document.getElementById('exp-date').value;
+  const paymentMethod = document.getElementById('exp-payment-method').value;
   const category = document.getElementById('exp-category').value;
   const amount = parseFloat(document.getElementById('exp-amount').value);
   const notes = document.getElementById('exp-notes').value.trim();
@@ -2284,11 +2822,15 @@ function saveExpenseForm(e) {
     return;
   }
 
+  const expenseType = document.querySelector('input[name="exp-type"]:checked').value;
+
   const record = {
     id: idVal ? parseInt(idVal) : (state.expenses.length > 0 ? Math.max(...state.expenses.map(e => e.id)) + 1 : 1),
     date,
+    expenseType,
     category,
     amount,
+    paymentMethod,
     notes,
     paidByFriend,
     friendName
@@ -2319,13 +2861,13 @@ function deleteExpense(id) {
 
 // 12. FRIEND FINANCING DEBT REPAYMENTS LEDGER
 function updateDebtTrackerUI() {
-  const statBorrowed = document.getElementById('debt-total-borrowed');
+  const statBorrowed = document.getElementById('dash-debt-total-borrowed');
   if (!statBorrowed) return;
 
   // 1. Calculate Borrowed and Paid Tally
   let totalBorrowed = 0;
   state.expenses.filter(e => !e.deleted).forEach(e => {
-    if (e.paidByFriend) totalBorrowed += e.amount;
+    if (e.expenseType === 'startup') totalBorrowed += e.amount;
   });
 
   let totalRepaid = 0;
@@ -2348,23 +2890,7 @@ function updateDebtTrackerUI() {
   } else {
     totalRevenue = state.recipes.filter(r => !r.deleted).reduce((sum, r) => sum + (r.sellingPrice * r.portions), 0);
   }
-  const combinedIncome = totalRevenue + totalTips;
-
-  // Ingredients Cost
-  let totalIngredientCost = 0;
-  const dishSales = activeSales.filter(s => s.type === 'dishes');
-  if (dishSales.length > 0) {
-    dishSales.forEach(s => {
-      const recipe = state.recipes.find(r => r.id === s.recipeId);
-      if (recipe) {
-        totalIngredientCost += s.quantity * calculateRecipeCostMetrics(recipe).portionCost;
-      }
-    });
-  } else {
-    state.recipes.filter(r => !r.deleted).forEach(recipe => {
-      totalIngredientCost += calculateRecipeCostMetrics(recipe).totalCost;
-    });
-  }
+  const combinedIncome = totalRevenue; // Tips excluded from business profit
 
   // Labor payroll
   let totalLabor = 0;
@@ -2376,24 +2902,24 @@ function updateDebtTrackerUI() {
   // Standard non-friend Overhead
   let standardOverhead = 0;
   state.expenses.filter(e => !e.deleted).forEach(exp => {
-    if (!exp.paidByFriend) standardOverhead += exp.amount;
+    if (exp.expenseType === 'operating' && !exp.paidByFriend) standardOverhead += exp.amount;
   });
 
-  // Available Profit = Revenue + Tips - Ingredients - Labor - Non-Friend Overhead - Cash Paid Out
-  const cumulativeProfit = combinedIncome - totalIngredientCost - totalLabor - standardOverhead;
+  // Available Profit = Revenue + Tips - Labor - Non-Friend Overhead - Cash Paid Out
+  const cumulativeProfit = combinedIncome - totalLabor - standardOverhead;
   const availableProfit = cumulativeProfit - totalRepaid;
 
   // 3. Render Tallies
   statBorrowed.textContent = formatCurrency(totalBorrowed);
-  document.getElementById('debt-total-repaid').textContent = formatCurrency(totalRepaid);
-  document.getElementById('debt-remaining-balance').textContent = formatCurrency(remainingBalance);
-  document.getElementById('loan-profits-value').textContent = formatCurrency(availableProfit);
+  document.getElementById('dash-debt-total-repaid').textContent = formatCurrency(totalRepaid);
+  document.getElementById('dash-debt-remaining-balance').textContent = formatCurrency(remainingBalance);
+  document.getElementById('dash-loan-profits-value').textContent = formatCurrency(availableProfit);
 
   // 4. Status Badge configuration
-  const badge = document.getElementById('loan-status-badge');
+  const badge = document.getElementById('dash-loan-status-badge');
   if (badge) {
     if (totalBorrowed === 0) {
-      badge.textContent = "No active loans";
+      badge.textContent = "No active loans/startup costs";
       badge.style.background = "rgba(255, 255, 255, 0.05)";
       badge.style.color = "var(--text-muted)";
     } else if (remainingBalance <= 0) {
@@ -2401,9 +2927,49 @@ function updateDebtTrackerUI() {
       badge.style.background = "rgba(91, 163, 112, 0.15)";
       badge.style.color = "var(--color-basil)";
     } else {
-      badge.textContent = "Outstanding Debts";
+      badge.textContent = "Outstanding Debts/Costs";
       badge.style.background = "rgba(239, 68, 68, 0.15)";
       badge.style.color = "var(--color-tomato)";
+    }
+  }
+
+  // 5. Per-Friend Breakdown
+  const debtListContainer = document.getElementById('dash-debt-by-friend-list');
+  if (debtListContainer) {
+    debtListContainer.innerHTML = '';
+    const friendBalances = {};
+
+    state.expenses.filter(e => !e.deleted && e.paidByFriend && e.friendName).forEach(e => {
+      const name = e.friendName.trim();
+      if (!friendBalances[name]) friendBalances[name] = { borrowed: 0, repaid: 0 };
+      friendBalances[name].borrowed += e.amount;
+    });
+
+    state.paybacks.filter(p => !p.deleted && p.friendName).forEach(p => {
+      const name = p.friendName.trim();
+      if (!friendBalances[name]) friendBalances[name] = { borrowed: 0, repaid: 0 };
+      friendBalances[name].repaid += p.amount;
+    });
+
+    const friendNames = Object.keys(friendBalances).sort();
+    if (friendNames.length === 0) {
+      debtListContainer.innerHTML = `<div style="font-size: 0.8rem; color: var(--text-muted); text-align: center; padding: 10px;">No individual friend loans logged yet.</div>`;
+    } else {
+      friendNames.forEach(name => {
+        const stats = friendBalances[name];
+        const remaining = Math.max(0, stats.borrowed - stats.repaid);
+        const html = `
+          <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); padding: 8px 12px; border-radius: var(--border-radius-md); border-left: 3px solid ${remaining > 0 ? 'var(--color-semolina)' : 'var(--color-basil)'};">
+            <span style="font-size: 0.85rem; font-weight: 600;">${name}</span>
+            <div style="display: flex; gap: 15px; font-size: 0.8rem;">
+              <span style="color: var(--text-muted);">Borrowed: ${formatCurrency(stats.borrowed)}</span>
+              <span style="color: var(--color-basil);">Repaid: ${formatCurrency(stats.repaid)}</span>
+              <span style="color: var(--color-egg); font-weight: 600;">Owed: ${formatCurrency(remaining)}</span>
+            </div>
+          </div>
+        `;
+        debtListContainer.insertAdjacentHTML('beforeend', html);
+      });
     }
   }
 }
@@ -3207,4 +3773,35 @@ function formatDateString(dateStr) {
   // Format as short month day (e.g. May 23)
   const d = new Date(parts[0], parts[1]-1, parts[2]);
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// ==========================================
+// RECEIPT MATH CALCULATOR
+// ==========================================
+function evaluateMathInput(inputEl) {
+  if (!inputEl || !inputEl.value) return;
+  const raw = inputEl.value;
+  // If it's just a number, format and return
+  if (/^\d*\.?\d+$/.test(raw)) {
+    inputEl.value = parseFloat(raw).toFixed(2);
+    return;
+  }
+  
+  try {
+    // Only allow numbers, math operators, and parentheses
+    const sanitized = raw.replace(/[^-()\d/*+.]/g, '');
+    if (!sanitized) return;
+    
+    // Evaluate the simple math expression safely
+    const result = new Function(`"use strict"; return (${sanitized});`)();
+    
+    if (isFinite(result) && !isNaN(result)) {
+      inputEl.value = result.toFixed(2);
+    } else {
+      inputEl.value = '';
+    }
+  } catch (err) {
+    // If invalid math, do not overwrite with error, just let them see their typo
+    console.warn("Invalid math expression in input:", err);
+  }
 }

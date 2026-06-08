@@ -86,26 +86,28 @@
           <i data-lucide="layout-dashboard"></i>
           <span>Dashboard</span>
         </button>
-        <button class="drawer-item" onclick="handleDrawerNav('recipes')" id="draw-recipes">
-          <i data-lucide="cooking-pot"></i>
-          <span>Recipes</span>
-        </button>
         <button class="drawer-item" onclick="handleDrawerNav('sales')" id="draw-sales">
           <i data-lucide="banknote"></i>
           <span>Sales & Income</span>
+        </button>
+        <button class="drawer-item" onclick="handleDrawerNav('expenses')" id="draw-expenses">
+          <i data-lucide="receipt"></i>
+          <span>Operating Expenses</span>
+        </button>
+        <button class="drawer-item" onclick="handleDrawerNav('timesheets')" id="draw-timesheets">
+          <i data-lucide="clock"></i>
+          <span>Labor & Timesheets</span>
+        </button>
+        <div style="margin: 10px 0; border-top: 1px solid rgba(255,255,255,0.1); width: 100%;"></div>
+        <button class="drawer-item" onclick="handleDrawerNav('recipes')" id="draw-recipes">
+          <i data-lucide="cooking-pot"></i>
+          <span>Menu & Recipes</span>
         </button>
         <button class="drawer-item" onclick="handleDrawerNav('ingredients')" id="draw-ingredients">
           <i data-lucide="wheat"></i>
           <span>Ingredients</span>
         </button>
-        <button class="drawer-item" onclick="handleDrawerNav('timesheets')" id="draw-timesheets">
-          <i data-lucide="clock"></i>
-          <span>Labor Log</span>
-        </button>
-        <button class="drawer-item" onclick="handleDrawerNav('expenses')" id="draw-expenses">
-          <i data-lucide="receipt"></i>
-          <span>Expenses</span>
-        </button>
+        <div style="margin: 10px 0; border-top: 1px solid rgba(255,255,255,0.1); width: 100%;"></div>
         <button class="drawer-item" onclick="handleDrawerNav('settings')" id="draw-settings">
           <i data-lucide="settings"></i>
           <span>Settings</span>
@@ -162,10 +164,15 @@
       
       <!-- ================= DASHBOARD TAB ================= -->
       <section id="tab-dashboard" class="tab-content active">
-        <div class="dashboard-grid">
-          <!-- KPI Row -->
-          <div class="kpi-container">
-            <div class="kpi-card glass" style="cursor: pointer; transition: transform 0.2s;" onclick="showExpenseBreakdown()" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'" title="Click to view cost breakdown">
+        <div class="dashboard-grid" style="grid-template-columns: 1fr; gap: 2rem;">
+          
+          <!-- Section A: Operating P&L -->
+          <div class="dashboard-section-a" style="background: rgba(0,0,0,0.15); border-radius: var(--border-radius-lg); padding: 1.5rem; border: 1px solid var(--border-glass);">
+            <h2 style="font-family: var(--font-brand); color: var(--color-semolina); font-size: 1.4rem; margin-bottom: 1rem; border-bottom: 1px dashed var(--border-glass); padding-bottom: 0.5rem;">
+              <i data-lucide="activity" class="inline-icon"></i> Operating Cash Flow (P&L)
+            </h2>
+            <div class="kpi-container" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+              <div class="kpi-card glass" style="cursor: pointer; transition: transform 0.2s;" onclick="showExpenseBreakdown()" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'" title="Click to view cost breakdown">
               <div class="kpi-header">
                 <span>Total Operational Expenses</span>
                 <i data-lucide="info" class="kpi-icon expenses" style="cursor: pointer;"></i>
@@ -195,7 +202,7 @@
               <div class="kpi-footer" id="kpi-labor-hours">0.0 hours logged</div>
             </div>
 
-            <div class="kpi-card glass">
+            <div class="kpi-card glass" onclick="switchTab('recipes')" style="cursor: pointer; transition: background 0.2s ease;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='var(--bg-glass)'">
               <div class="kpi-header">
                 <span>Menu Items Catalog</span>
                 <i data-lucide="shopping-bag" class="kpi-icon recipes"></i>
@@ -220,9 +227,42 @@
               <div class="kpi-value" id="kpi-dashboard-profit">$0.00</div>
               <div class="kpi-footer">Revenue - Expenses - Labor</div>
             </div>
+            </div>
+          </div>
+          
+          <!-- Section B: Financing & Debts -->
+          <div class="dashboard-section-b" style="background: rgba(0,0,0,0.15); border-radius: var(--border-radius-lg); padding: 1.5rem; border: 1px solid var(--border-glass);">
+            <h2 style="font-family: var(--font-brand); color: var(--color-tomato); font-size: 1.4rem; margin-bottom: 1rem; border-bottom: 1px dashed var(--border-glass); padding-bottom: 0.5rem;">
+              <i data-lucide="handshake" class="inline-icon"></i> Startup Costs & Financing
+            </h2>
+            
+            <div id="dashboard-financing-panel" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem;">
+              <div class="loan-stats-container">
+                <div class="loan-stats-grid" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                  <div class="loan-stat-box" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-glass); padding: 12px; border-radius: var(--border-radius-md);">
+                    <div class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Total Startup Cost/Debt</div>
+                    <div class="val" id="dash-debt-total-borrowed" style="font-family: var(--font-brand); font-weight: 700; font-size: 1.35rem; color: var(--color-cream);">$0.00</div>
+                  </div>
+                  <div class="loan-stat-box" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-glass); padding: 12px; border-radius: var(--border-radius-md);">
+                    <div class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Total Repaid</div>
+                    <div class="val" id="dash-debt-total-repaid" style="font-family: var(--font-brand); font-weight: 700; font-size: 1.35rem; color: var(--color-basil);">$0.00</div>
+                  </div>
+                  <div class="loan-stat-box" style="background: rgba(255, 255, 255, 0.02); border: 1px dashed var(--color-semolina); padding: 12px; border-radius: var(--border-radius-md);">
+                    <div class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Owed Balance</div>
+                    <div class="val" id="dash-debt-remaining-balance" style="font-family: var(--font-brand); font-weight: 700; font-size: 1.35rem; color: var(--color-egg);">$0.00</div>
+                  </div>
+                </div>
+                <div class="loan-available-profits" style="font-size: 0.85rem; color: var(--text-muted); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 15px;">
+                  <span id="dash-loan-status-badge" class="badge" style="background: var(--color-tomato-dark); color: var(--color-tomato);">Outstanding Debts</span>
+                  <span>Available Profits: <strong id="dash-loan-profits-value" style="color: var(--color-basil); font-size: 1rem;">$0.00</strong></span>
+                </div>
+                <div id="dash-debt-by-friend-list" style="margin-top: 15px; display: flex; flex-direction: column; gap: 6px;">
+                  <!-- Dynamic friend balances will render here -->
+                </div>
+              </div>
+            </div>
           </div>
 
-          <!-- Charts & Alerts Layout -->
           <div class="dashboard-analytics">
             <!-- Expense Breakdown Chart -->
             <div class="analytics-card glass">
@@ -302,15 +342,30 @@
             <div class="kpi-footer" style="font-size: 0.65rem;">Thank your customers!</div>
           </div>
 
-          <div class="kpi-card glass" style="margin-bottom: 0; padding: 15px;">
+          <div class="kpi-card glass" style="margin-bottom: 0; padding: 15px; cursor: pointer; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'" onclick="openTipPoolModal()">
             <div class="kpi-header" style="font-size: 0.75rem;">
-              <span>Combined Total Income</span>
-              <i data-lucide="banknote" class="kpi-icon cost-pct" style="color: var(--color-basil);"></i>
+              <span>Tip Pool Calculator</span>
+              <i data-lucide="calculator" class="kpi-icon cost-pct" style="color: var(--color-basil);"></i>
             </div>
-            <div class="kpi-value" id="kpi-sales-combined" style="font-size: 1.5rem; margin: 5px 0;">$0.00</div>
-            <div class="kpi-footer" style="font-size: 0.65rem;">Revenue + Tips</div>
+            <div class="kpi-value" id="kpi-tips-undistributed" style="font-size: 1.5rem; margin: 5px 0;">$0.00</div>
+            <div class="kpi-footer" style="font-size: 0.65rem;">Click to distribute to workers</div>
+          </div>
+
+          <div class="kpi-card glass" style="margin-bottom: 0; padding: 15px; cursor: pointer; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'" onclick="openRegisterModal()">
+            <div class="kpi-header" style="font-size: 0.75rem;">
+              <span>Cash Register Balance</span>
+              <i data-lucide="wallet" class="kpi-icon cost-pct" style="color: var(--color-blue);"></i>
+            </div>
+            <div class="kpi-value" id="kpi-register-total" style="font-size: 1.5rem; margin: 5px 0; color: var(--color-blue);">$0.00</div>
+            <div class="kpi-footer" style="font-size: 0.65rem;">Click to reconcile drawer</div>
           </div>
         </div>
+
+        <div class="overhead-section-header" style="margin: 1.5rem 0 0.75rem 0; border-bottom: 1px solid var(--border-glass); padding-bottom: 6px;">
+          <h3 style="font-family: var(--font-brand); font-size: 1.1rem; font-weight: 700;">Sales & Income Logs</h3>
+        </div>
+
+        <div id="sales-weekly-tabs-container" class="weekly-tabs-container" style="margin-bottom: 15px; display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px;"></div>
 
         <!-- Sales Logs Table -->
         <div class="sales-list-container glass">
@@ -394,9 +449,19 @@
           <div class="timesheet-main glass">
             <div class="side-header">
               <h3>Shift Logs</h3>
-              <button class="btn-primary btn-sm" onclick="openLogShiftModal()">
-                <i data-lucide="plus"></i> Log Shift Hours
-              </button>
+              <div style="display: flex; gap: 8px;">
+                <button class="btn-secondary btn-sm" onclick="openPayoutModal()">
+                  <i data-lucide="banknote"></i> Log Worker Payout
+                </button>
+                <button class="btn-primary btn-sm" onclick="openLogShiftModal()">
+                  <i data-lucide="plus"></i> Log Shift Hours
+                </button>
+              </div>
+            </div>
+            
+            <!-- Weekly Tabs for Labor -->
+            <div id="labor-weekly-tabs-container" style="display: flex; gap: 10px; overflow-x: auto; padding-bottom: 10px; margin-bottom: 15px;">
+              <!-- Tabs injected dynamically -->
             </div>
             
             <div class="timesheet-table-container">
@@ -417,6 +482,28 @@
                 </tbody>
               </table>
             </div>
+
+            <!-- Worker Payouts & Tips Ledger -->
+            <div class="overhead-section-header" style="margin: 2rem 0 0.75rem 0; border-bottom: 1px solid var(--border-glass); padding-bottom: 6px;">
+              <h3 style="font-family: var(--font-brand); font-size: 1.1rem; font-weight: 700;">Salary & Tips Payout Ledger</h3>
+            </div>
+            <div class="timesheet-table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Worker</th>
+                    <th>Type</th>
+                    <th>Amount</th>
+                    <th>Notes</th>
+                    <th style="width: 80px;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="payouts-table-body">
+                  <!-- Dynamic Payout entries -->
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </section>
@@ -433,46 +520,9 @@
           </button>
         </div>
 
-        <!-- Friend Financing & Payback Panel (Premium loan repayment ledger) -->
-        <div id="friend-financing-panel" class="friend-financing-panel glass" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; padding: 1.25rem; border-radius: var(--border-radius-lg); margin-bottom: 1.5rem; background: rgba(0, 0, 0, 0.25); border: 1px solid var(--border-glass);">
-          <!-- Left: Loan Tallies -->
-          <div class="loan-stats-container">
-            <h3 style="font-family: var(--font-brand); color: var(--color-semolina); font-size: 1.05rem; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-              <i data-lucide="handshake"></i> Friend Financing & Debt Balance
-            </h3>
-            <div class="loan-stats-grid" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px;">
-              <div class="loan-stat-box" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-glass); padding: 8px; border-radius: var(--border-radius-md);">
-                <div class="label" style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase;">Total Financed</div>
-                <div class="val" id="debt-total-borrowed" style="font-family: var(--font-brand); font-weight: 700; font-size: 1.15rem; color: var(--color-cream);">$0.00</div>
-              </div>
-              <div class="loan-stat-box" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-glass); padding: 8px; border-radius: var(--border-radius-md);">
-                <div class="label" style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase;">Total Repaid</div>
-                <div class="val" id="debt-total-repaid" style="font-family: var(--font-brand); font-weight: 700; font-size: 1.15rem; color: var(--color-basil);">$0.00</div>
-              </div>
-              <div class="loan-stat-box" style="background: rgba(255, 255, 255, 0.02); border: 1px dashed var(--color-semolina); padding: 8px; border-radius: var(--border-radius-md);">
-                <div class="label" style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase;">Owed Balance</div>
-                <div class="val" id="debt-remaining-balance" style="font-family: var(--font-brand); font-weight: 700; font-size: 1.15rem; color: var(--color-egg);">$0.00</div>
-              </div>
-            </div>
-            <div class="loan-available-profits" style="font-size: 0.75rem; color: var(--text-muted); display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-              <span id="loan-status-badge" class="badge" style="background: var(--color-tomato-dark); color: var(--color-tomato);">Outstanding Debts</span>
-              <span>Available Profits: <strong id="loan-profits-value" style="color: var(--color-basil);">$0.00</strong></span>
-            </div>
-          </div>
-          
-          <!-- Right: Installments Trigger -->
-          <div class="loan-actions-container" style="display: flex; flex-direction: column; justify-content: center; align-items: flex-end; gap: 10px; padding-left: 0.5rem;">
-            <p style="font-size: 0.75rem; color: var(--text-muted); text-align: right; max-width: 280px; margin-bottom: 4px;">
-              Pay friends back from cumulative business profits alone. Log each payment installment here!
-            </p>
-            <button class="btn-primary" onclick="openPaybackModal()" style="display: flex; align-items: center; gap: 6px; padding: 8px 14px; font-size: 0.8rem; height: auto; min-height: 38px;">
-              <i data-lucide="reply" style="width: 14px; height: 14px;"></i> Record Friend Payback
-            </button>
-          </div>
-        </div>
-
-        <div class="overhead-section-header" style="margin: 1.5rem 0 0.75rem 0; border-bottom: 1px solid var(--border-glass); padding-bottom: 6px;">
-          <h3 style="font-family: var(--font-brand); font-size: 1.1rem; font-weight: 700;">Standard Cash Operating Expenses</h3>
+        <!-- Weekly Tabs for Operating Expenses -->
+        <div id="expenses-weekly-tabs-container" style="display: flex; gap: 10px; overflow-x: auto; padding-bottom: 10px; margin-bottom: 15px;">
+          <!-- Tabs injected dynamically -->
         </div>
 
         <div class="expenses-list-container glass">
@@ -488,6 +538,29 @@
             </thead>
             <tbody id="expenses-table-body">
               <!-- Dynamic Operating Expenses Rows -->
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Startup Costs & Debts Section -->
+        <div class="overhead-section-header" style="margin: 2.5rem 0 0.75rem 0; border-bottom: 1px solid var(--border-glass); padding-bottom: 6px;">
+          <h3 style="font-family: var(--font-brand); font-size: 1.1rem; font-weight: 700; color: var(--color-tomato);">Startup Costs & Major Debts</h3>
+        </div>
+
+        <div class="expenses-list-container glass">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Category</th>
+                <th>Amount</th>
+                <th>Friend/Lender</th>
+                <th>Notes</th>
+                <th style="width: 100px;">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="startup-expenses-table-body">
+              <!-- Dynamic Startup Expenses Rows -->
             </tbody>
           </table>
         </div>
@@ -812,6 +885,93 @@
     </div>
   </div>
 
+  <!-- MODAL: Log Worker Payout -->
+  <div id="modal-payout" class="modal-overlay">
+    <div class="modal-container glass modal-sm">
+      <div class="modal-header">
+        <h2 id="modal-payout-title">Log Salary Payout</h2>
+        <button class="modal-close" onclick="closeModal('modal-payout')">&times;</button>
+      </div>
+      <form id="form-payout" onsubmit="savePayoutForm(event)">
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="payout-worker-id">Select Worker <span class="required">*</span></label>
+            <select id="payout-worker-id" required onchange="updateSuggestedPayout()">
+              <!-- Dynamic workers options -->
+            </select>
+            <div id="payout-suggested-amount" style="font-size: 0.8rem; color: var(--color-blue); margin-top: 5px; display: none;"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="payout-date">Date Paid <span class="required">*</span></label>
+              <input type="date" id="payout-date" required>
+            </div>
+            <div class="form-group">
+              <label for="payout-amount">Amount Paid ($) <span class="required">*</span></label>
+              <input type="number" id="payout-amount" step="0.01" min="0.01" placeholder="e.g. 150.00" required>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="payout-method">Payment Method <span class="required">*</span></label>
+              <select id="payout-method" required>
+                <option value="Cash">Cash</option>
+                <option value="Card/Digital">Card / Venmo / Digital</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="payout-notes">Notes</label>
+              <input type="text" id="payout-notes" placeholder="e.g. Weekly salary">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-secondary" onclick="closeModal('modal-payout')">Cancel</button>
+          <button type="submit" class="btn-primary">Record Payout</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Tip Pool Calculator -->
+  <div id="modal-tip-pool" class="modal-overlay">
+    <div class="modal-container glass modal-sm">
+      <div class="modal-header">
+        <h2 id="modal-tip-pool-title">Distribute Tips</h2>
+        <button class="modal-close" onclick="closeModal('modal-tip-pool')">&times;</button>
+      </div>
+      <form id="form-tip-pool" onsubmit="saveTipPoolForm(event)">
+        <div class="modal-body">
+          <div style="margin-bottom: 15px;">
+            <span style="font-size: 0.85rem; color: var(--text-muted);">Undistributed Tips Pool</span>
+            <div id="tip-pool-amount-display" style="font-size: 2rem; font-weight: 700; color: var(--color-basil); font-family: var(--font-brand);">$0.00</div>
+          </div>
+          
+          <div class="form-group">
+            <label>Select Workers to include in this pool: <span class="required">*</span></label>
+            <div id="tip-pool-workers-list" style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px; max-height: 200px; overflow-y: auto; background: rgba(0,0,0,0.2); padding: 10px; border-radius: var(--border-radius-sm); border: 1px solid var(--border-glass);">
+              <!-- Worker checkboxes injected here -->
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="tip-pool-date">Distribution Date <span class="required">*</span></label>
+            <input type="date" id="tip-pool-date" required>
+          </div>
+          
+          <div id="tip-pool-preview" style="font-size: 0.85rem; color: var(--color-cream); margin-top: 10px; font-weight: 600;">
+            <!-- Preview calculation -->
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-secondary" onclick="closeModal('modal-tip-pool')">Cancel</button>
+          <button type="submit" class="btn-primary" id="btn-distribute-tips">Distribute Tips</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- MODAL 4: Log Expense -->
   <div id="modal-expense" class="modal-overlay">
     <div class="modal-container glass modal-md">
@@ -823,26 +983,55 @@
         <input type="hidden" id="expense-form-id">
         <div class="modal-body">
           <div class="form-row">
+            <div class="form-group" style="width: 100%;">
+              <label>Expense Type <span class="required">*</span></label>
+              <div style="display: flex; gap: 15px; margin-top: 5px;">
+                <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; font-weight: normal;">
+                  <input type="radio" name="exp-type" value="operating" id="exp-type-operating" checked>
+                  Standard Operating (Weekly)
+                </label>
+                <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; font-weight: normal;">
+                  <input type="radio" name="exp-type" value="startup" id="exp-type-startup">
+                  Startup / Major Debt
+                </label>
+              </div>
+            </div>
+          </div>
+          <div class="form-row">
             <div class="form-group">
               <label for="exp-date">Date <span class="required">*</span></label>
               <input type="date" id="exp-date" required>
             </div>
             <div class="form-group">
-              <label for="exp-category">Expense Category <span class="required">*</span></label>
-              <select id="exp-category" required>
-                <option value="Food Shopping (Receipt)">Food Shopping (Receipt)</option>
-                <option value="Packaging">Packaging</option>
-                <option value="Booth Fee">Booth Fee</option>
-                <option value="Kitchen Rent">Kitchen Rent</option>
-                <option value="Gas & Travel">Gas & Travel</option>
-                <option value="Marketing">Marketing</option>
-                <option value="Equipment & Tools">Equipment & Tools</option>
-                <option value="Other Overhead">Other Overhead</option>
+              <label for="exp-payment-method">Payment Method <span class="required">*</span></label>
+              <select id="exp-payment-method" required>
+                <option value="Card" selected>Card / Digital</option>
+                <option value="Cash">Cash</option>
+                <option value="Other">Other</option>
               </select>
             </div>
+          </div>
+          <div class="form-row">
             <div class="form-group">
-              <label for="exp-amount">Amount ($) <span class="required">*</span></label>
-              <input type="number" id="exp-amount" step="0.01" min="0.01" placeholder="e.g. 75.00" required>
+              <label for="exp-category">Expense Category <span class="required">*</span></label>
+              <input list="expense-categories" id="exp-category" placeholder="Type or select category..." required>
+              <datalist id="expense-categories">
+                <option value="Food Shopping (Receipt)">
+                <option value="Packaging">
+                <option value="Booth Fee">
+                <option value="Kitchen Rent">
+                <option value="Gas & Travel">
+                <option value="Marketing">
+                <option value="Equipment & Tools">
+                <option value="Other Overhead">
+              </datalist>
+            </div>
+            <div class="form-group">
+              <label for="exp-amount" style="display: flex; justify-content: space-between;">
+                <span>Amount ($) <span class="required">*</span></span>
+                <span style="font-size: 0.65rem; color: var(--text-muted); font-weight: normal;"><i data-lucide="calculator" style="width: 10px; height: 10px; display: inline-block;"></i> Math allowed (15+20.5)</span>
+              </label>
+              <input type="text" inputmode="decimal" id="exp-amount" placeholder="e.g. 75.00 or 15+20.50" required onblur="evaluateMathInput(this)">
             </div>
           </div>
           <div class="form-group">
@@ -1144,6 +1333,14 @@
                 <option value="lump">Lump Sum Income / Register Total</option>
               </select>
             </div>
+            <div class="form-group">
+              <label for="sales-payment-method">Payment Method <span class="required">*</span></label>
+              <select id="sales-payment-method" required>
+                <option value="Card">Card / Digital</option>
+                <option value="Cash" selected>Cash</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
           </div>
 
           <!-- Dish-Specific Group -->
@@ -1244,6 +1441,31 @@
 
   <!-- Script entries -->
   <script src="sample-data.js"></script>
+  <!-- MODAL 8: Reconcile Register -->
+  <div id="modal-register" class="modal-overlay">
+    <div class="modal-container glass modal-sm">
+      <div class="modal-header">
+        <h2 id="modal-register-title">Reconcile Cash Register</h2>
+        <button class="modal-close" onclick="closeModal('modal-register')">&times;</button>
+      </div>
+      <form id="form-register" onsubmit="saveRegisterForm(event)">
+        <div class="modal-body">
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 15px;">
+            The system tracks your expected register balance by adding all cash income and subtracting cash expenses. If your actual drawer count is different, you can adjust it here.
+          </p>
+          <div class="form-group">
+            <label for="reg-actual-balance">Actual Cash in Drawer ($) <span class="required">*</span></label>
+            <input type="number" id="reg-actual-balance" step="0.01" min="0" placeholder="e.g. 150.00" required>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-secondary" onclick="closeModal('modal-register')">Cancel</button>
+          <button type="submit" class="btn-primary">Update Balance</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- MODAL: Custom Alert -->
   <div id="modal-custom-alert" class="modal-overlay" style="z-index: 10000;">
     <div class="modal-container glass" style="max-width: 400px; text-align: center;">

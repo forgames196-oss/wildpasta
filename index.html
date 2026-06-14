@@ -565,6 +565,44 @@
           </table>
         </div>
 
+        <!-- Friend Financing & Payback Panel (Premium loan repayment ledger) -->
+        <div class="friend-financing-panel glass" id="friend-financing-panel" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; padding: 1.25rem; border-radius: var(--border-radius-lg); margin-bottom: 1.5rem; background: rgba(0, 0, 0, 0.25); border: 1px solid var(--border-glass);">
+          <!-- Left: Loan Tallies -->
+          <div class="loan-stats-container">
+            <h3 style="font-family: var(--font-brand); color: var(--color-semolina); font-size: 1.05rem; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+              <i data-lucide="handshake"></i> Friend Financing & Debt Balance
+            </h3>
+            <div class="loan-stats-grid" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+              <div class="loan-stat-box" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-glass); padding: 8px; border-radius: var(--border-radius-md);">
+                <div class="label" style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase;">Total Financed</div>
+                <div class="val" id="debt-total-borrowed" style="font-family: var(--font-brand); font-weight: 700; font-size: 1.15rem; color: var(--color-cream);">$0.00</div>
+              </div>
+              <div class="loan-stat-box" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-glass); padding: 8px; border-radius: var(--border-radius-md);">
+                <div class="label" style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase;">Total Repaid</div>
+                <div class="val" id="debt-total-repaid" style="font-family: var(--font-brand); font-weight: 700; font-size: 1.15rem; color: var(--color-basil);">$0.00</div>
+              </div>
+              <div class="loan-stat-box" style="background: rgba(255, 255, 255, 0.02); border: 1px dashed var(--color-semolina); padding: 8px; border-radius: var(--border-radius-md);">
+                <div class="label" style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase;">Owed Balance</div>
+                <div class="val" id="debt-remaining-balance" style="font-family: var(--font-brand); font-weight: 700; font-size: 1.15rem; color: var(--color-egg);">$0.00</div>
+              </div>
+            </div>
+            <div class="loan-available-profits" style="font-size: 0.75rem; color: var(--text-muted); display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <span id="loan-status-badge" class="badge" style="background: var(--color-tomato-dark); color: var(--color-tomato);">Outstanding Debts</span>
+              <span>Available Profits: <strong id="loan-profits-value" style="color: var(--color-basil);">$0.00</strong></span>
+            </div>
+          </div>
+          
+          <!-- Right: Installments Trigger -->
+          <div class="loan-actions-container" style="display: flex; flex-direction: column; justify-content: center; align-items: flex-end; gap: 10px; padding-left: 0.5rem;">
+            <p style="font-size: 0.75rem; color: var(--text-muted); text-align: right; max-width: 280px; margin-bottom: 4px;">
+              Pay friends back from cumulative business profits alone. Log each payment installment here!
+            </p>
+            <button class="btn-primary" onclick="openPaybackModal()" style="display: flex; align-items: center; gap: 6px; padding: 8px 14px; font-size: 0.8rem; height: auto; min-height: 38px;">
+              <i data-lucide="reply" style="width: 14px; height: 14px;"></i> Record Friend Payback
+            </button>
+          </div>
+        </div>
+
         <!-- Friend Repayment History Logs -->
         <div id="paybacks-history-section">
           <div class="overhead-section-header" style="margin: 2rem 0 0.75rem 0; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-glass); padding-bottom: 6px;">
@@ -662,6 +700,10 @@
                 <label class="checkbox-container" style="display: flex; align-items: center; gap: 10px; font-size: 0.85rem; cursor: pointer; user-select: none;">
                   <input type="checkbox" id="toggle-friend-financing" checked onchange="toggleFeatureSetting('showFriendFinancing')" style="width: 18px; height: 18px; cursor: pointer;">
                   <span><strong>Friend Financing</strong> — Show "paid by friend" and Paybacks section</span>
+                </label>
+                <label class="checkbox-container" style="display: flex; align-items: center; gap: 10px; font-size: 0.85rem; cursor: pointer; user-select: none;">
+                  <input type="checkbox" id="toggle-quantity-income" checked onchange="toggleFeatureSetting('showQuantityIncome')" style="width: 18px; height: 18px; cursor: pointer;">
+                  <span><strong>Quantity-Based Income</strong> — Allow logging sales by dish quantity instead of just lump sum</span>
                 </label>
               </div>
             </div>
@@ -1511,6 +1553,76 @@
       <div class="modal-footer">
         <button class="btn-secondary" onclick="closeModal('modal-custom-date-range'); cancelCustomDateRange();">Cancel</button>
         <button class="btn-primary" onclick="applyCustomDateRange()">Apply Filter</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Worker Profile -->
+  <div id="modal-worker-profile" class="modal-overlay" style="z-index: 8500;">
+    <div class="modal-container glass modal-lg">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <i data-lucide="user" style="width: 24px; height: 24px; color: var(--color-semolina);"></i>
+          <div>
+            <h2 id="worker-profile-name" style="margin: 0; font-size: 1.4rem;">Worker Name</h2>
+            <p id="worker-profile-role" style="margin: 0; font-size: 0.85rem; color: var(--text-muted);">Role</p>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeModal('modal-worker-profile')">&times;</button>
+      </div>
+      <div class="modal-body scrollable-modal-body" style="padding-top: 15px;">
+        <div class="kpi-container" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom: 20px;">
+          <div class="kpi-card glass" style="margin-bottom: 0; padding: 15px;">
+            <div class="kpi-header" style="font-size: 0.75rem;">
+              <span>Total Hours Logged</span>
+              <i data-lucide="clock" class="kpi-icon labor" style="color: var(--color-blue);"></i>
+            </div>
+            <div class="kpi-value" id="worker-profile-hours" style="font-size: 1.5rem; margin: 5px 0;">0.0</div>
+          </div>
+          <div class="kpi-card glass" style="margin-bottom: 0; padding: 15px;">
+            <div class="kpi-header" style="font-size: 0.75rem;">
+              <span>Total Wages Earned</span>
+              <i data-lucide="dollar-sign" class="kpi-icon expenses" style="color: var(--color-semolina);"></i>
+            </div>
+            <div class="kpi-value" id="worker-profile-earned" style="font-size: 1.5rem; margin: 5px 0;">$0.00</div>
+          </div>
+          <div class="kpi-card glass" style="margin-bottom: 0; padding: 15px;">
+            <div class="kpi-header" style="font-size: 0.75rem;">
+              <span>Total Amount Paid</span>
+              <i data-lucide="banknote" class="kpi-icon profit" style="color: var(--color-basil);"></i>
+            </div>
+            <div class="kpi-value" id="worker-profile-paid" style="font-size: 1.5rem; margin: 5px 0;">$0.00</div>
+          </div>
+          <div class="kpi-card glass" style="margin-bottom: 0; padding: 15px; border: 1px dashed var(--color-tomato);">
+            <div class="kpi-header" style="font-size: 0.75rem;">
+              <span>Unpaid Balance</span>
+              <i data-lucide="alert-circle" class="kpi-icon" style="color: var(--color-tomato);"></i>
+            </div>
+            <div class="kpi-value" id="worker-profile-balance" style="font-size: 1.5rem; margin: 5px 0; color: var(--color-tomato);">$0.00</div>
+          </div>
+        </div>
+
+        <h3 style="font-family: var(--font-brand); font-size: 1.1rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 6px; margin-bottom: 12px;">Shift & Payout History</h3>
+        <table class="data-table" style="font-size: 0.85rem;">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Type</th>
+              <th>Hours</th>
+              <th>Amount ($)</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody id="worker-profile-history-body">
+            <!-- Dynamic History -->
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+        <button class="btn-secondary" id="worker-profile-export-btn" onclick="exportWorkerDataCSV(this.dataset.workerId)">
+          <i data-lucide="download"></i> Export CSV
+        </button>
+        <button class="btn-primary" onclick="closeModal('modal-worker-profile')">Close Profile</button>
       </div>
     </div>
   </div>

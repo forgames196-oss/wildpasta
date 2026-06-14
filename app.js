@@ -197,6 +197,7 @@ function initAppState() {
       if (!state.settings.lastSyncTime) state.settings.lastSyncTime = '';
       if (state.settings.showFoodWeight === undefined) state.settings.showFoodWeight = true;
       if (state.settings.showFriendFinancing === undefined) state.settings.showFriendFinancing = true;
+      if (state.settings.showQuantityIncome === undefined) state.settings.showQuantityIncome = true;
       if (state.settings.registerAdjustment === undefined) state.settings.registerAdjustment = 0;
       
       // Data migration for expenseType
@@ -1693,17 +1694,17 @@ function renderWorkersAndTimesheets() {
     const rateDisplay = w.hourlyRate === 0 ? "Owner Tracking / Unpaid" : `${formatCurrency(w.hourlyRate)} / hour`;
     
     const card = `
-      <div class="worker-card">
+      <div class="worker-card" style="cursor: pointer;" onclick="openWorkerProfile(${w.id})">
         <div class="worker-info">
           <h4>${w.name}</h4>
           <p style="color: var(--color-semolina); font-size: 0.75rem; font-weight: 600; margin-bottom: 2px;">${roleDisplay}</p>
           <p>${rateDisplay}</p>
         </div>
         <div class="worker-actions">
-          <button class="btn-action-edit" onclick="editWorker(${w.id})" title="Edit Worker">
+          <button class="btn-action-edit" onclick="event.stopPropagation(); editWorker(${w.id})" title="Edit Worker">
             <i data-lucide="edit-3"></i>
           </button>
-          <button class="btn-action-delete" onclick="deleteWorker(${w.id})" title="Delete Worker">
+          <button class="btn-action-delete" onclick="event.stopPropagation(); deleteWorker(${w.id})" title="Delete Worker">
             <i data-lucide="trash-2"></i>
           </button>
         </div>
@@ -1753,11 +1754,14 @@ function renderWorkersAndTimesheets() {
     return dateB - dateA;
   });
 
-  if (!window.currentLaborWeekTab || !weeksMap[window.currentLaborWeekTab]) {
+  if (!window.currentLaborWeekTab || (window.currentLaborWeekTab !== 'All' && !weeksMap[window.currentLaborWeekTab])) {
     window.currentLaborWeekTab = sortedWeeks[0];
   }
 
   if (tabsContainer) {
+    const isAllAct = 'All' === window.currentLaborWeekTab;
+    tabsContainer.insertAdjacentHTML('beforeend', `<button class="unit-btn ${isAllAct ? 'active' : ''}" style="white-space: nowrap; font-size: 0.8rem;" onclick="setLaborWeekTab('All')">All</button>`);
+
     sortedWeeks.forEach(w => {
       const isAct = w === window.currentLaborWeekTab;
       const btn = `<button class="unit-btn ${isAct ? 'active' : ''}" style="white-space: nowrap; font-size: 0.8rem;" onclick="setLaborWeekTab('${w}')">${w}</button>`;
@@ -1765,7 +1769,29 @@ function renderWorkersAndTimesheets() {
     });
   }
 
-  const selectedShifts = weeksMap[window.currentLaborWeekTab];
+  const selectedShifts = window.currentLaborWeekTab === 'All' ? filteredTimesheet : weeksMap[window.currentLaborWeekTab];
+
+  // --- Calculate Weekly Worker Hours Summary ---
+  if (window.currentLaborWeekTab !== 'All' && selectedShifts && selectedShifts.length > 0) {
+    const workerTotals = {};
+    selectedShifts.forEach(t => {
+      if (!workerTotals[t.workerId]) workerTotals[t.workerId] = 0;
+      workerTotals[t.workerId] += t.hours;
+    });
+
+    let summaryHtml = `<div style="display: flex; gap: 15px; margin-bottom: 10px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: var(--border-radius-md); border: 1px solid var(--border-glass); flex-wrap: wrap;">`;
+    summaryHtml += `<strong style="color: var(--color-semolina); font-size: 0.85rem; width: 100%;">Weekly Hours Summary:</strong>`;
+    
+    Object.keys(workerTotals).forEach(wId => {
+      const worker = state.workers.find(w => w.id === parseInt(wId));
+      const name = worker ? worker.name : "Unknown";
+      summaryHtml += `<span style="font-size: 0.85rem;"><i data-lucide="user" style="width:12px;height:12px;display:inline;margin-right:4px;"></i>${name}: <strong>${workerTotals[wId].toFixed(1)}h</strong></span>`;
+    });
+    summaryHtml += `</div>`;
+    
+    tbody.innerHTML = `<tr><td colspan="7" style="padding: 10px 15px;">${summaryHtml}</td></tr>`;
+  }
+
   
   // Group by Day
   const daysMap = {};
@@ -1823,6 +1849,102 @@ function renderWorkersAndTimesheets() {
   if (lucide && lucide.createIcons) lucide.createIcons();
 
   lucide.createIcons();
+}
+
+function openWorkerProfile(workerId) {
+  const worker = state.workers.find(w => w.id === parseInt(workerId));
+  if (!worker) return;
+
+  document.getElementById('worker-profile-name').textContent = worker.name;
+  document.getElementById('worker-profile-role').textContent = worker.role || "Staff";
+
+  let totalHours = 0;
+  let totalEarned = 0;
+  const shifts = [];
+  
+  state.timesheet.filter(t => !t.deleted && t.workerId === worker.id).forEach(t => {
+    totalHours += t.hours;
+    const earned = t.hours * worker.hourlyRate;
+    totalEarned += earned;
+    shifts.push({ date: t.date, type: 'Shift', hours: t.hours, amount: earned, notes: t.notes });
+  });
+
+  let totalPaid = 0;
+  state.workerPayouts.filter(p => !p.deleted && p.workerId === worker.id).forEach(p => {
+    totalPaid += p.amount;
+    shifts.push({ date: p.date, type: 'Payout', hours: null, amount: p.amount, notes: p.notes });
+  });
+
+  const balance = totalEarned - totalPaid;
+
+  document.getElementById('worker-profile-hours').textContent = totalHours.toFixed(1);
+  document.getElementById('worker-profile-earned').textContent = formatCurrency(totalEarned);
+  document.getElementById('worker-profile-paid').textContent = formatCurrency(totalPaid);
+  document.getElementById('worker-profile-balance').textContent = formatCurrency(balance);
+
+  const tbody = document.getElementById('worker-profile-history-body');
+  tbody.innerHTML = '';
+  
+  shifts.sort((a, b) => new Date(b.date) - new Date(a.date)).forEach(s => {
+    let typeBadge = '';
+    let amountStr = '';
+    
+    if (s.type === 'Shift') {
+      typeBadge = `<span class="badge" style="background: rgba(91, 163, 112, 0.1); color: var(--color-blue);">Shift</span>`;
+      amountStr = `<span style="color: var(--color-semolina);">+${formatCurrency(s.amount)}</span>`;
+    } else {
+      typeBadge = `<span class="badge category-packaging">Payout</span>`;
+      amountStr = `<span style="color: var(--color-basil);">-${formatCurrency(s.amount)}</span>`;
+    }
+    
+    const tr = `
+      <tr>
+        <td>${formatDateString(s.date)}</td>
+        <td>${typeBadge}</td>
+        <td>${s.hours !== null ? s.hours.toFixed(1) + 'h' : '—'}</td>
+        <td style="font-weight: bold;">${amountStr}</td>
+        <td style="color: var(--text-muted); font-size: 0.75rem;">${s.notes || '—'}</td>
+      </tr>
+    `;
+    tbody.insertAdjacentHTML('beforeend', tr);
+  });
+  
+  if (shifts.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 20px;">No shift or payout history found.</td></tr>`;
+  }
+
+  document.getElementById('worker-profile-export-btn').dataset.workerId = worker.id;
+  openModal('modal-worker-profile');
+}
+
+function exportWorkerDataCSV(workerId) {
+  const worker = state.workers.find(w => w.id === parseInt(workerId));
+  if (!worker) return;
+
+  let csvContent = "data:text/csv;charset=utf-8,";
+  csvContent += "Date,Type,Hours,Amount,Notes\n";
+
+  const shifts = [];
+  state.timesheet.filter(t => !t.deleted && t.workerId === worker.id).forEach(t => {
+    shifts.push({ date: t.date, type: 'Shift', hours: t.hours, amount: t.hours * worker.hourlyRate, notes: t.notes || '' });
+  });
+
+  state.workerPayouts.filter(p => !p.deleted && p.workerId === worker.id).forEach(p => {
+    shifts.push({ date: p.date, type: 'Payout', hours: '', amount: p.amount, notes: p.notes || '' });
+  });
+
+  shifts.sort((a, b) => new Date(b.date) - new Date(a.date)).forEach(s => {
+    const safeNotes = s.notes.replace(/"/g, '""');
+    csvContent += `"${s.date}","${s.type}","${s.hours}","${s.amount}","${safeNotes}"\n`;
+  });
+
+  const encodedUri = encodeURI(csvContent);
+  const link = document.createElement("a");
+  link.setAttribute("href", encodedUri);
+  link.setAttribute("download", `Worker_History_${worker.name.replace(/\\s+/g, '_')}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
 
 // Workers CRUD
@@ -2203,11 +2325,14 @@ function renderSalesList() {
     return dateB - dateA;
   });
 
-  if (!window.currentSalesWeekTab || !weeksMap[window.currentSalesWeekTab]) {
+  if (!window.currentSalesWeekTab || (window.currentSalesWeekTab !== 'All' && !weeksMap[window.currentSalesWeekTab])) {
     window.currentSalesWeekTab = sortedWeeks[0];
   }
 
   if (tabsContainer) {
+    const isAllAct = 'All' === window.currentSalesWeekTab;
+    tabsContainer.insertAdjacentHTML('beforeend', `<button class="unit-btn ${isAllAct ? 'active' : ''}" style="white-space: nowrap; font-size: 0.8rem;" onclick="setSalesWeekTab('All')">All</button>`);
+
     sortedWeeks.forEach(w => {
       const isAct = w === window.currentSalesWeekTab;
       const btn = `<button class="unit-btn ${isAct ? 'active' : ''}" style="white-space: nowrap; font-size: 0.8rem;" onclick="setSalesWeekTab('${w}')">${w}</button>`;
@@ -2215,7 +2340,7 @@ function renderSalesList() {
     });
   }
 
-  const selectedSales = weeksMap[window.currentSalesWeekTab];
+  const selectedSales = window.currentSalesWeekTab === 'All' ? filtered : weeksMap[window.currentSalesWeekTab];
 
   // Group by Day
   const daysMap = {};
@@ -2295,6 +2420,18 @@ function handleSalesTypeSelect() {
   try {
     const typeEl = document.getElementById('sales-type');
     if (!typeEl) return;
+
+    if (state.settings.showQuantityIncome === false) {
+      typeEl.value = 'lump';
+      for (let i = 0; i < typeEl.options.length; i++) {
+        if (typeEl.options[i].value === 'dishes') typeEl.options[i].disabled = true;
+      }
+    } else {
+      for (let i = 0; i < typeEl.options.length; i++) {
+        if (typeEl.options[i].value === 'dishes') typeEl.options[i].disabled = false;
+      }
+    }
+
     const type = typeEl.value;
 
     const dishGroup = document.getElementById('group-sales-dish');
@@ -2456,7 +2593,13 @@ function openSalesModal() {
     if (idInput) idInput.value = '';
 
     const typeInput = document.getElementById('sales-type');
-    if (typeInput) typeInput.value = 'dishes';
+    if (typeInput) {
+      if (state.settings.showQuantityIncome === false) {
+        typeInput.value = 'lump';
+      } else {
+        typeInput.value = 'dishes';
+      }
+    }
     
     // Populate recipes select list with Menu Items only
     const select = document.getElementById('sales-recipe-id');
@@ -2723,12 +2866,15 @@ function renderExpensesList() {
     return dateB - dateA;
   });
 
-  if (!window.currentExpenseWeekTab || !weeksMap[window.currentExpenseWeekTab]) {
+  if (!window.currentExpenseWeekTab || (window.currentExpenseWeekTab !== 'All' && !weeksMap[window.currentExpenseWeekTab])) {
     window.currentExpenseWeekTab = sortedWeeks[0];
   }
 
   // Render Tabs
   if (tabsContainer) {
+    const isAllAct = 'All' === window.currentExpenseWeekTab;
+    tabsContainer.insertAdjacentHTML('beforeend', `<button class="unit-btn ${isAllAct ? 'active' : ''}" style="white-space: nowrap; font-size: 0.8rem;" onclick="setExpenseWeekTab('All')">All</button>`);
+
     sortedWeeks.forEach(w => {
       const isAct = w === window.currentExpenseWeekTab;
       const btn = `<button class="unit-btn ${isAct ? 'active' : ''}" style="white-space: nowrap; font-size: 0.8rem;" onclick="setExpenseWeekTab('${w}')">${w}</button>`;
@@ -2737,7 +2883,7 @@ function renderExpensesList() {
   }
 
   // Render Selected Week
-  const selectedOps = weeksMap[window.currentExpenseWeekTab];
+  const selectedOps = window.currentExpenseWeekTab === 'All' ? operatingExpenses : weeksMap[window.currentExpenseWeekTab];
   selectedOps.sort((a,b) => new Date(b.date) - new Date(a.date)).forEach(exp => {
     const tr = `
       <tr>
@@ -2861,8 +3007,10 @@ function deleteExpense(id) {
 
 // 12. FRIEND FINANCING DEBT REPAYMENTS LEDGER
 function updateDebtTrackerUI() {
-  const statBorrowed = document.getElementById('dash-debt-total-borrowed');
-  if (!statBorrowed) return;
+  const dashBorrowed = document.getElementById('dash-debt-total-borrowed');
+  const expBorrowed = document.getElementById('debt-total-borrowed');
+  
+  if (!dashBorrowed && !expBorrowed) return;
 
   // 1. Calculate Borrowed and Paid Tally
   let totalBorrowed = 0;
@@ -2909,15 +3057,28 @@ function updateDebtTrackerUI() {
   const cumulativeProfit = combinedIncome - totalLabor - standardOverhead;
   const availableProfit = cumulativeProfit - totalRepaid;
 
-  // 3. Render Tallies
-  statBorrowed.textContent = formatCurrency(totalBorrowed);
-  document.getElementById('dash-debt-total-repaid').textContent = formatCurrency(totalRepaid);
-  document.getElementById('dash-debt-remaining-balance').textContent = formatCurrency(remainingBalance);
-  document.getElementById('dash-loan-profits-value').textContent = formatCurrency(availableProfit);
+  // 3. Render Tallies to Dashboard
+  if (dashBorrowed) dashBorrowed.textContent = formatCurrency(totalBorrowed);
+  const dashRepaid = document.getElementById('dash-debt-total-repaid');
+  if (dashRepaid) dashRepaid.textContent = formatCurrency(totalRepaid);
+  const dashRemaining = document.getElementById('dash-debt-remaining-balance');
+  if (dashRemaining) dashRemaining.textContent = formatCurrency(remainingBalance);
+  const dashProfits = document.getElementById('dash-loan-profits-value');
+  if (dashProfits) dashProfits.textContent = formatCurrency(availableProfit);
+
+  // Render Tallies to Expenses Tab
+  if (expBorrowed) expBorrowed.textContent = formatCurrency(totalBorrowed);
+  const expRepaid = document.getElementById('debt-total-repaid');
+  if (expRepaid) expRepaid.textContent = formatCurrency(totalRepaid);
+  const expRemaining = document.getElementById('debt-remaining-balance');
+  if (expRemaining) expRemaining.textContent = formatCurrency(remainingBalance);
+  const expProfits = document.getElementById('loan-profits-value');
+  if (expProfits) expProfits.textContent = formatCurrency(availableProfit);
 
   // 4. Status Badge configuration
-  const badge = document.getElementById('dash-loan-status-badge');
-  if (badge) {
+  const updateBadge = (badgeId) => {
+    const badge = document.getElementById(badgeId);
+    if (!badge) return;
     if (totalBorrowed === 0) {
       badge.textContent = "No active loans/startup costs";
       badge.style.background = "rgba(255, 255, 255, 0.05)";
@@ -2931,7 +3092,11 @@ function updateDebtTrackerUI() {
       badge.style.background = "rgba(239, 68, 68, 0.15)";
       badge.style.color = "var(--color-tomato)";
     }
-  }
+  };
+
+  updateBadge('dash-loan-status-badge');
+  updateBadge('loan-status-badge');
+}
 
   // 5. Per-Friend Breakdown
   const debtListContainer = document.getElementById('dash-debt-by-friend-list');
@@ -3414,6 +3579,7 @@ function updateSyncUIElements() {
   // Set toggles
   document.getElementById('toggle-food-weight').checked = state.settings.showFoodWeight !== false;
   document.getElementById('toggle-friend-financing').checked = state.settings.showFriendFinancing !== false;
+  document.getElementById('toggle-quantity-income').checked = state.settings.showQuantityIncome !== false;
   
   applyFeatureTogglesToUI();
   validateSyncSettings();
@@ -3424,6 +3590,8 @@ function toggleFeatureSetting(settingName) {
     state.settings.showFoodWeight = document.getElementById('toggle-food-weight').checked;
   } else if (settingName === 'showFriendFinancing') {
     state.settings.showFriendFinancing = document.getElementById('toggle-friend-financing').checked;
+  } else if (settingName === 'showQuantityIncome') {
+    state.settings.showQuantityIncome = document.getElementById('toggle-quantity-income').checked;
   }
   saveStateLocal();
   applyFeatureTogglesToUI();

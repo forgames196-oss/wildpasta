@@ -2,6 +2,11 @@
    WILD PASTA - CORE APPLICATION LOGIC
    ========================================================================== */
 
+// Offline Safety Shims for when CDN scripts fail to load (e.g. no internet)
+if (typeof lucide === 'undefined') window.lucide = { createIcons: () => {} };
+if (typeof Chart === 'undefined') window.Chart = class { constructor() {} destroy() {} update() {} };
+if (typeof flatpickr === 'undefined') window.flatpickr = function() {};
+
 // 1. HIGH-PRECISION UNIT CONVERSION MATRIX
 const TO_GRAMS = { g: 1, kg: 1000, oz: 28.3495, lb: 453.592 };
 const TO_ML = { ml: 1, L: 1000, floz: 29.5735, cup: 236.588, gal: 3785.41 };
@@ -3096,7 +3101,6 @@ function updateDebtTrackerUI() {
 
   updateBadge('dash-loan-status-badge');
   updateBadge('loan-status-badge');
-}
 
   // 5. Per-Friend Breakdown
   const debtListContainer = document.getElementById('dash-debt-by-friend-list');
